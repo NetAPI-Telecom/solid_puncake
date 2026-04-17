@@ -9,21 +9,25 @@ A ready-to-run demo app that shows how to use NetAPI's SIM Swap API in a real-wo
 ### Option 1: Docker (recommended — zero dependency issues)
 
 ```bash
-# 1. Clone
+# 1. Clone the repo
 git clone https://github.com/NetAPI-Telecom/solid_puncake.git
-cd netapi-quickstart
+cd solid_puncake
 
-# 2. Add your credentials to .env
+# 2. Create your .env file from the template
+cp .env.example .env
+
+# 3. Open .env in your editor and paste your credentials
 #    Get them from: https://api.netapi.africa → Dashboard → Getting Started
+#    Fill in NETAPI_CLIENT_ID and NETAPI_CLIENT_SECRET
 
-# 3. Run (pick your language)
+# 4. Run (pick your language)
 docker compose up node       # Node.js
 docker compose up python     # Python
 docker compose up php        # PHP
 docker compose up go         # Go
 docker compose up java       # Java
 
-# 4. Open http://localhost:3000
+# 5. Open http://localhost:3000 in your browser
 ```
 
 ### Option 2: Run natively
@@ -33,7 +37,8 @@ Pick your language and follow the instructions below.
 #### Node.js
 ```bash
 cd backends/node
-# Edit .env with your credentials
+cp .env.example .env          # Create your .env from the template
+# Open .env and paste your Client ID and Client Secret
 npm install
 npm start
 # Open http://localhost:3000
@@ -42,7 +47,8 @@ npm start
 #### Python
 ```bash
 cd backends/python
-# Edit .env with your credentials
+cp .env.example .env          # Create your .env from the template
+# Open .env and paste your Client ID and Client Secret
 pip install -r requirements.txt
 python app.py
 # Open http://localhost:3000
@@ -51,7 +57,8 @@ python app.py
 #### PHP
 ```bash
 cd backends/php
-# Edit .env with your credentials
+cp .env.example .env          # Create your .env from the template
+# Open .env and paste your Client ID and Client Secret
 php -S localhost:3000 index.php
 # Open http://localhost:3000
 ```
@@ -59,7 +66,8 @@ php -S localhost:3000 index.php
 #### Go
 ```bash
 cd backends/go
-# Edit .env with your credentials
+cp .env.example .env          # Create your .env from the template
+# Open .env and paste your Client ID and Client Secret
 go run main.go
 # Open http://localhost:3000
 ```
@@ -67,22 +75,25 @@ go run main.go
 #### Java
 ```bash
 cd backends/java
-# Edit .env with your credentials
+cp .env.example .env          # Create your .env from the template
+# Open .env and paste your Client ID and Client Secret
 java src/App.java
 # Open http://localhost:3000
 ```
 
 ## Configuration
 
-All backends use the same three environment variables:
+All backends use the same three environment variables (in your `.env` file):
 
-| Variable | Description |
-|----------|-------------|
-| `NETAPI_CLIENT_ID` | Your app's Client ID from the NetAPI dashboard |
-| `NETAPI_CLIENT_SECRET` | Your app's Client Secret from the NetAPI dashboard |
-| `NETAPI_BASE_URL` | NetAPI gateway URL (default: `https://api.netapi.africa`) |
+| Variable | Description | Where to find it |
+|----------|-------------|-----------------|
+| `NETAPI_CLIENT_ID` | Your app's Client ID | NetAPI Dashboard → Getting Started → Step 3 |
+| `NETAPI_CLIENT_SECRET` | Your app's Client Secret | NetAPI Dashboard → Getting Started → Step 3 (click the eye icon to reveal) |
+| `NETAPI_BASE_URL` | NetAPI gateway URL | Already set to `https://api.netapi.africa` — no change needed |
 
 ## Test Phone Numbers
+
+Use these numbers in the app to see different scenarios:
 
 | Number | Scenario | What happens |
 |--------|----------|-------------|
@@ -96,20 +107,13 @@ All backends use the same three environment variables:
 ```
 Your App                    NetAPI Gateway              Mobile Operator
    |                            |                            |
-   |  1. CIBA Auth Request      |                            |
-   |  (phone number + creds)    |                            |
-   |--------------------------->|                            |
-   |                            |  Forward to operator       |
-   |                            |--------------------------->|
-   |                            |                            |
-   |                            |  Operator verifies phone   |
-   |                            |<---------------------------|
-   |  2. Poll for token         |                            |
+   |  1. Get Token              |                            |
+   |  (client_id + secret)      |                            |
    |--------------------------->|                            |
    |  <- access_token           |                            |
    |<---------------------------|                            |
    |                            |                            |
-   |  3. SIM Swap Check         |                            |
+   |  2. SIM Swap Check         |                            |
    |  (phone + token)           |                            |
    |--------------------------->|  Check SIM swap status     |
    |                            |--------------------------->|
@@ -121,25 +125,34 @@ Your App                    NetAPI Gateway              Mobile Operator
 ## Project Structure
 
 ```
-netapi-quickstart/
-  frontend/           # Shared UI (single HTML file, all backends serve it)
-    index.html        # LendSafe bank demo with trace panel
+solid_puncake/
+  frontend/              # Shared UI (single HTML file, all backends serve it)
+    index.html           # LendSafe bank demo with trace panel
   backends/
-    node/             # Node.js (Express)
-    python/           # Python (Flask)
-    php/              # PHP (built-in server)
-    go/               # Go (net/http)
-    java/             # Java (com.sun.net.httpserver, zero deps)
-  docker-compose.yml  # Run any backend with: docker compose up <language>
-  .env                # Shared credentials for Docker
-  README.md           # This file
+    node/                # Node.js (Express)
+      .env.example       # ← copy this to .env and add your credentials
+      server.js          # The backend code (heavily commented)
+    python/              # Python (Flask)
+      .env.example
+      app.py
+    php/                 # PHP (built-in server)
+      .env.example
+      index.php
+    go/                  # Go (net/http)
+      .env.example
+      main.go
+    java/                # Java (com.sun.net.httpserver, zero deps)
+      .env.example
+      src/App.java
+  docker-compose.yml     # Run any backend with: docker compose up <language>
+  .env.example           # ← copy this to .env for Docker (shared by all services)
+  README.md              # This file
 ```
 
 ## What This Teaches You
 
-1. **CIBA Authentication** — How to authenticate a phone number through NetAPI without user interaction
-2. **Token Polling** — How to wait for operator approval and handle pending states
-3. **SIM Swap API** — How to check if a SIM was recently swapped and interpret the result
+1. **Client Credentials Auth** — How to get an access token using your app's credentials
+2. **SIM Swap API** — How to check if a SIM was recently swapped and interpret the result
 4. **Error Handling** — How to handle timeouts, offline devices, and API errors in your UI
 5. **Real-World Integration** — How a bank (or any app) would integrate fraud checks into their workflow
 

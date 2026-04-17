@@ -20,7 +20,6 @@ import (
 	"net/url"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/joho/godotenv"
 )
@@ -112,42 +111,42 @@ func handleCheckSimSwap(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// =================================================================
-	// STEP 1: CIBA Authentication
+	// STEP 1: Get an Access Token (Client Credentials)
 	// =================================================================
-	addTrace("request", fmt.Sprintf("POST %s/oauth/bc-authorize", netapiBaseURL), map[string]interface{}{
-		"title": "CIBA Authentication Request",
+	addTrace("request", fmt.Sprintf("POST %s/oauth/token", netapiBaseURL), map[string]interface{}{
+		"title": "Token Request (Client Credentials)",
 		"body": map[string]string{
-			"login_hint":    "tel:" + req.PhoneNumber,
-			"scope":         "openid dpv:FraudPreventionAndDetection sim-swap:check",
+			"grant_type":    "client_credentials",
 			"client_id":     netapiClientID,
 			"client_secret": "***hidden***",
+			"scope":         "sim-swap:check",
 		},
 	})
 
-	cibaData := url.Values{
-		"login_hint":    {"tel:" + req.PhoneNumber},
-		"scope":         {"openid dpv:FraudPreventionAndDetection sim-swap:check"},
+	tokenData := url.Values{
+		"grant_type":    {"client_credentials"},
 		"client_id":     {netapiClientID},
 		"client_secret": {netapiClientSecret},
+		"scope":         {"sim-swap:check"},
 	}
 
-	cibaResp, err := http.Post(netapiBaseURL+"/oauth/bc-authorize", "application/x-www-form-urlencoded", strings.NewReader(cibaData.Encode()))
+	tokenResp, err := http.Post(netapiBaseURL+"/oauth/token", "application/x-www-form-urlencoded", strings.NewReader(tokenData.Encode()))
 	if err != nil {
 		addTrace("error", "Connection failed: "+err.Error(), nil)
 		respond(CheckResponse{Error: "Could not connect to NetAPI"})
 		return
 	}
-	defer cibaResp.Body.Close()
+	defer tokenResp.Body.Close()
 
-	var cibaResult map[string]interface{}
-	json.NewDecoder(cibaResp.Body).Decode(&cibaResult)
+	var tokenResult map[string]interface{}
+	json.NewDecoder(tokenResp.Body).Decode(&tokenResult)
 
-	authReqID, ok := cibaResult["auth_req_id"].(string)
-	if !ok || cibaResp.StatusCode != 200 {
-		addTrace("error", fmt.Sprintf("CIBA failed: %d", cibaResp.StatusCode), map[string]interface{}{
-			"title": "CIBA Error", "body": cibaResult,
+	accessToken, ok := tokenResult["access_token"].(string)
+	if !ok || tokenResp.StatusCode != 200 {
+		addTrace("error", fmt.Sprintf("Token failed: %d", tokenResp.StatusCode), map[string]interface{}{
+			"title": "Token Error", "body": tokenResult,
 		})
-		errMsg, _ := cibaResult["error_description"].(string)
+		errMsg, _ := tokenResult["error_description"].(string)
 		if errMsg == "" {
 			errMsg = "Authentication failed"
 		}
@@ -155,66 +154,10 @@ func handleCheckSimSwap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	addTrace("response", fmt.Sprintf("200 OK — auth_req_id: %s...", authReqID[:16]), nil)
+	addTrace("response", fmt.Sprintf("200 OK — Token received (%s...)", accessToken[:20]), nil)
 
 	// =================================================================
-	// STEP 2: Poll for Token
-	// =================================================================
-	var accessToken string
-	pollInterval := 5
-	if iv, ok := cibaResult["interval"].(float64); ok {
-		pollInterval = int(iv)
-	}
-
-	for attempt := 1; attempt <= 6; attempt++ {
-		addTrace("info", fmt.Sprintf("Polling for token (attempt %d/6)...", attempt), nil)
-
-		if attempt == 1 {
-			time.Sleep(2 * time.Second)
-		} else {
-			time.Sleep(time.Duration(pollInterval) * time.Second)
-		}
-
-		addTrace("request", fmt.Sprintf("POST %s/oauth/token", netapiBaseURL), nil)
-
-		tokenData := url.Values{
-			"grant_type":    {"urn:openid:params:grant-type:ciba"},
-			"auth_req_id":   {authReqID},
-			"client_id":     {netapiClientID},
-			"client_secret": {netapiClientSecret},
-		}
-
-		tokenResp, err := http.Post(netapiBaseURL+"/oauth/token", "application/x-www-form-urlencoded", strings.NewReader(tokenData.Encode()))
-		if err != nil {
-			addTrace("error", "Token poll failed: "+err.Error(), nil)
-			continue
-		}
-
-		var tokenResult map[string]interface{}
-		json.NewDecoder(tokenResp.Body).Decode(&tokenResult)
-		tokenResp.Body.Close()
-
-		if tok, ok := tokenResult["access_token"].(string); ok {
-			accessToken = tok
-			addTrace("response", fmt.Sprintf("200 OK — Token received (%s...)", tok[:20]), nil)
-			break
-		} else if tokenResult["error"] == "authorization_pending" {
-			addTrace("info", "Authorization pending — operator is processing...", nil)
-		} else {
-			addTrace("error", fmt.Sprintf("Token failed: %v", tokenResult["error"]), nil)
-			respond(CheckResponse{Error: "Token request failed"})
-			return
-		}
-	}
-
-	if accessToken == "" {
-		addTrace("error", "Timed out waiting for token", nil)
-		respond(CheckResponse{Error: "Authentication timed out"})
-		return
-	}
-
-	// =================================================================
-	// STEP 3: Call the SIM Swap API
+	// STEP 2: Call the SIM Swap API
 	// =================================================================
 	addTrace("request", fmt.Sprintf("POST %s/sim-swap/v2/check", netapiBaseURL), map[string]interface{}{
 		"title": "SIM Swap Check Request",

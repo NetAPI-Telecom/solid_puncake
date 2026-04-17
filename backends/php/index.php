@@ -68,86 +68,45 @@ if ($uri === '/api/check-sim-swap' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
     try {
         // =================================================================
-        // STEP 1: CIBA Authentication
+        // STEP 1: Get an Access Token (Client Credentials)
         // =================================================================
-        $log('request', "POST $NETAPI_BASE_URL/oauth/bc-authorize", [
-            'title' => 'CIBA Authentication Request',
+        $log('request', "POST $NETAPI_BASE_URL/oauth/token", [
+            'title' => 'Token Request (Client Credentials)',
             'body' => [
-                'login_hint' => "tel:$phoneNumber",
-                'scope' => 'openid dpv:FraudPreventionAndDetection sim-swap:check',
+                'grant_type' => 'client_credentials',
                 'client_id' => $NETAPI_CLIENT_ID,
-                'client_secret' => '***hidden***'
+                'client_secret' => '***hidden***',
+                'scope' => 'sim-swap:check'
             ]
         ]);
 
-        $cibaResp = $httpPost("$NETAPI_BASE_URL/oauth/bc-authorize",
+        $tokenResp = $httpPost("$NETAPI_BASE_URL/oauth/token",
             http_build_query([
-                'login_hint' => "tel:$phoneNumber",
-                'scope' => 'openid dpv:FraudPreventionAndDetection sim-swap:check',
+                'grant_type' => 'client_credentials',
                 'client_id' => $NETAPI_CLIENT_ID,
-                'client_secret' => $NETAPI_CLIENT_SECRET
+                'client_secret' => $NETAPI_CLIENT_SECRET,
+                'scope' => 'sim-swap:check'
             ]),
             ['Content-Type' => 'application/x-www-form-urlencoded']
         );
 
-        if ($cibaResp['status'] !== 200 || !isset($cibaResp['body']['auth_req_id'])) {
-            $log('error', "CIBA failed: {$cibaResp['status']}", [
-                'title' => 'CIBA Error Response',
-                'body' => $cibaResp['body']
+        if ($tokenResp['status'] !== 200 || !isset($tokenResp['body']['access_token'])) {
+            $log('error', "Token failed: {$tokenResp['status']}", [
+                'title' => 'Token Error Response',
+                'body' => $tokenResp['body']
             ]);
-            echo json_encode(['success' => false, 'error' => $cibaResp['body']['error_description'] ?? 'Auth failed', 'trace' => $trace]);
+            echo json_encode(['success' => false, 'error' => $tokenResp['body']['error_description'] ?? 'Auth failed', 'trace' => $trace]);
             exit;
         }
 
-        $authReqId = $cibaResp['body']['auth_req_id'];
-        $log('response', "200 OK — auth_req_id: " . substr($authReqId, 0, 16) . "...", [
-            'title' => 'CIBA Response',
-            'body' => ['auth_req_id' => $authReqId, 'expires_in' => $cibaResp['body']['expires_in'] ?? null]
+        $accessToken = $tokenResp['body']['access_token'];
+        $log('response', "200 OK — Token received (" . substr($accessToken, 0, 20) . "...)", [
+            'title' => 'Token Response',
+            'body' => ['access_token' => substr($accessToken, 0, 30) . '...', 'expires_in' => $tokenResp['body']['expires_in'] ?? null]
         ]);
 
         // =================================================================
-        // STEP 2: Poll for Token
-        // =================================================================
-        $pollInterval = $cibaResp['body']['interval'] ?? 5;
-        $accessToken = null;
-
-        for ($attempt = 1; $attempt <= 6; $attempt++) {
-            $log('info', "Polling for token (attempt $attempt/6)...");
-            sleep($attempt === 1 ? 2 : $pollInterval);
-
-            $log('request', "POST $NETAPI_BASE_URL/oauth/token");
-
-            $tokenResp = $httpPost("$NETAPI_BASE_URL/oauth/token",
-                http_build_query([
-                    'grant_type' => 'urn:openid:params:grant-type:ciba',
-                    'auth_req_id' => $authReqId,
-                    'client_id' => $NETAPI_CLIENT_ID,
-                    'client_secret' => $NETAPI_CLIENT_SECRET
-                ]),
-                ['Content-Type' => 'application/x-www-form-urlencoded']
-            );
-
-            if (isset($tokenResp['body']['access_token'])) {
-                $accessToken = $tokenResp['body']['access_token'];
-                $log('response', "200 OK — Token received (" . substr($accessToken, 0, 20) . "...)");
-                break;
-            } elseif (($tokenResp['body']['error'] ?? '') === 'authorization_pending') {
-                $log('info', 'Authorization pending — operator is processing...');
-            } else {
-                $log('error', "Token failed: " . ($tokenResp['body']['error'] ?? 'Unknown'));
-                echo json_encode(['success' => false, 'error' => 'Token request failed', 'trace' => $trace]);
-                exit;
-            }
-        }
-
-        if (!$accessToken) {
-            $log('error', 'Timed out waiting for token');
-            echo json_encode(['success' => false, 'error' => 'Authentication timed out', 'trace' => $trace]);
-            exit;
-        }
-
-        // =================================================================
-        // STEP 3: Call the SIM Swap API
+        // STEP 2: Call the SIM Swap API
         // =================================================================
         $log('request', "POST $NETAPI_BASE_URL/sim-swap/v2/check", [
             'title' => 'SIM Swap Check Request',

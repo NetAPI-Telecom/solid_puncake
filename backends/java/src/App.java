@@ -83,79 +83,34 @@ public class App {
 
         try {
             // =================================================================
-            // STEP 1: CIBA Authentication
+            // STEP 1: Get an Access Token (Client Credentials)
             // =================================================================
-            traceEntries.add(Map.of("type", "request", "message", "POST " + NETAPI_BASE_URL + "/oauth/bc-authorize"));
+            traceEntries.add(Map.of("type", "request", "message", "POST " + NETAPI_BASE_URL + "/oauth/token"));
 
-            String cibaBody = "login_hint=" + URLEncoder.encode("tel:" + phoneNumber, "UTF-8")
-                + "&scope=" + URLEncoder.encode("openid dpv:FraudPreventionAndDetection sim-swap:check", "UTF-8")
+            String tokenBody = "grant_type=client_credentials"
                 + "&client_id=" + URLEncoder.encode(NETAPI_CLIENT_ID, "UTF-8")
-                + "&client_secret=" + URLEncoder.encode(NETAPI_CLIENT_SECRET, "UTF-8");
+                + "&client_secret=" + URLEncoder.encode(NETAPI_CLIENT_SECRET, "UTF-8")
+                + "&scope=" + URLEncoder.encode("sim-swap:check", "UTF-8");
 
-            var cibaReq = HttpRequest.newBuilder()
-                .uri(URI.create(NETAPI_BASE_URL + "/oauth/bc-authorize"))
+            var tokenReq = HttpRequest.newBuilder()
+                .uri(URI.create(NETAPI_BASE_URL + "/oauth/token"))
                 .header("Content-Type", "application/x-www-form-urlencoded")
-                .POST(HttpRequest.BodyPublishers.ofString(cibaBody))
+                .POST(HttpRequest.BodyPublishers.ofString(tokenBody))
                 .build();
 
-            var cibaResp = httpClient.send(cibaReq, HttpResponse.BodyHandlers.ofString());
-            String cibaJson = cibaResp.body();
-            String authReqId = extractJsonString(cibaJson, "auth_req_id");
+            var tokenResp = httpClient.send(tokenReq, HttpResponse.BodyHandlers.ofString());
+            String accessToken = extractJsonString(tokenResp.body(), "access_token");
 
-            if (cibaResp.statusCode() != 200 || authReqId == null) {
-                traceEntries.add(Map.of("type", "error", "message", "CIBA failed: " + cibaResp.statusCode()));
+            if (tokenResp.statusCode() != 200 || accessToken == null) {
+                traceEntries.add(Map.of("type", "error", "message", "Token failed: " + tokenResp.statusCode()));
                 sendJson(exchange, "{\"success\":false,\"error\":\"Authentication failed\",\"trace\":" + toJsonArray(traceEntries) + "}");
                 return;
             }
 
-            traceEntries.add(Map.of("type", "response", "message", "200 OK — auth_req_id: " + authReqId.substring(0, 16) + "..."));
+            traceEntries.add(Map.of("type", "response", "message", "200 OK — Token received (" + accessToken.substring(0, 20) + "...)"));
 
             // =================================================================
-            // STEP 2: Poll for Token
-            // =================================================================
-            String accessToken = null;
-
-            for (int attempt = 1; attempt <= 6; attempt++) {
-                traceEntries.add(Map.of("type", "info", "message", "Polling for token (attempt " + attempt + "/6)..."));
-                Thread.sleep(attempt == 1 ? 2000 : 5000);
-
-                traceEntries.add(Map.of("type", "request", "message", "POST " + NETAPI_BASE_URL + "/oauth/token"));
-
-                String tokenBody = "grant_type=" + URLEncoder.encode("urn:openid:params:grant-type:ciba", "UTF-8")
-                    + "&auth_req_id=" + URLEncoder.encode(authReqId, "UTF-8")
-                    + "&client_id=" + URLEncoder.encode(NETAPI_CLIENT_ID, "UTF-8")
-                    + "&client_secret=" + URLEncoder.encode(NETAPI_CLIENT_SECRET, "UTF-8");
-
-                var tokenReq = HttpRequest.newBuilder()
-                    .uri(URI.create(NETAPI_BASE_URL + "/oauth/token"))
-                    .header("Content-Type", "application/x-www-form-urlencoded")
-                    .POST(HttpRequest.BodyPublishers.ofString(tokenBody))
-                    .build();
-
-                var tokenResp = httpClient.send(tokenReq, HttpResponse.BodyHandlers.ofString());
-                accessToken = extractJsonString(tokenResp.body(), "access_token");
-
-                if (accessToken != null) {
-                    traceEntries.add(Map.of("type", "response", "message", "200 OK — Token received (" + accessToken.substring(0, 20) + "...)"));
-                    break;
-                } else if (tokenResp.body().contains("authorization_pending")) {
-                    traceEntries.add(Map.of("type", "info", "message", "Authorization pending — operator is processing..."));
-                    accessToken = null;
-                } else {
-                    traceEntries.add(Map.of("type", "error", "message", "Token failed"));
-                    sendJson(exchange, "{\"success\":false,\"error\":\"Token request failed\",\"trace\":" + toJsonArray(traceEntries) + "}");
-                    return;
-                }
-            }
-
-            if (accessToken == null) {
-                traceEntries.add(Map.of("type", "error", "message", "Timed out waiting for token"));
-                sendJson(exchange, "{\"success\":false,\"error\":\"Authentication timed out\",\"trace\":" + toJsonArray(traceEntries) + "}");
-                return;
-            }
-
-            // =================================================================
-            // STEP 3: Call the SIM Swap API
+            // STEP 2: Call the SIM Swap API
             // =================================================================
             traceEntries.add(Map.of("type", "request", "message", "POST " + NETAPI_BASE_URL + "/sim-swap/v2/check"));
 

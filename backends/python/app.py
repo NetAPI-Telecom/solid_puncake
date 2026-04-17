@@ -6,14 +6,12 @@
 # 2. Handles SIM Swap verification requests by talking to NetAPI
 #
 # The flow for each verification request:
-#   1. CIBA Authentication: Ask NetAPI to authenticate a phone number
-#   2. Token Polling: Wait for the operator to approve the authentication
-#   3. SIM Swap Check: Use the token to check if the SIM was recently swapped
-#   4. Return the result + a full trace log to the frontend
+#   1. Client Credentials: Get an access token using your app's client_id + secret
+#   2. SIM Swap Check: Use the token to check if the SIM was recently swapped
+#   3. Return the result + a full trace log to the frontend
 # =============================================================================
 
 import os
-import time
 import json
 import requests
 from flask import Flask, request, jsonify, send_from_directory
@@ -64,137 +62,71 @@ def check_sim_swap():
 
     try:
         # =================================================================
-        # STEP 1: CIBA Authentication
+        # STEP 1: Get an Access Token (Client Credentials)
         #
-        # CIBA = Client-Initiated Backchannel Authentication
-        # We tell NetAPI which phone number to authenticate.
-        # NetAPI forwards this to the mobile operator (e.g. Safaricom).
-        # The operator verifies the number on their network.
+        # Client Credentials is the simplest OAuth2 flow — your server
+        # authenticates directly with NetAPI using your app's client_id
+        # and client_secret. No user interaction needed.
+        #
+        # This is the right flow when YOUR SERVER is making the check
+        # on behalf of a customer (e.g., a bank checking before loan approval).
         # =================================================================
 
-        log('request', f'POST {NETAPI_BASE_URL}/oauth/bc-authorize', {
-            'title': 'CIBA Authentication Request',
+        log('request', f'POST {NETAPI_BASE_URL}/oauth/token', {
+            'title': 'Token Request (Client Credentials)',
             'body': {
-                'login_hint': f'tel:{phone_number}',
-                'scope': 'openid dpv:FraudPreventionAndDetection sim-swap:check',
+                'grant_type': 'client_credentials',
                 'client_id': NETAPI_CLIENT_ID,
-                'client_secret': '***hidden***'
+                'client_secret': '***hidden***',
+                'scope': 'sim-swap:check'
             }
         })
 
-        ciba_resp = requests.post(
-            f'{NETAPI_BASE_URL}/oauth/bc-authorize',
+        token_resp = requests.post(
+            f'{NETAPI_BASE_URL}/oauth/token',
             data={
-                'login_hint': f'tel:{phone_number}',
-                'scope': 'openid dpv:FraudPreventionAndDetection sim-swap:check',
+                'grant_type': 'client_credentials',
                 'client_id': NETAPI_CLIENT_ID,
-                'client_secret': NETAPI_CLIENT_SECRET
+                'client_secret': NETAPI_CLIENT_SECRET,
+                'scope': 'sim-swap:check'
             },
             headers={'Content-Type': 'application/x-www-form-urlencoded'}
         )
 
-        ciba_data = ciba_resp.json()
+        token_data = token_resp.json()
 
-        if ciba_resp.status_code != 200 or 'auth_req_id' not in ciba_data:
-            log('error', f'CIBA failed: {ciba_resp.status_code} — {ciba_data.get("error", "Unknown")}', {
-                'title': 'CIBA Error Response',
-                'body': ciba_data
+        if token_resp.status_code != 200 or 'access_token' not in token_data:
+            log('error', f'Token request failed: {token_resp.status_code} — {token_data.get("error", "Unknown")}', {
+                'title': 'Token Error Response',
+                'body': token_data
             })
             return jsonify({
                 'success': False,
-                'error': ciba_data.get('error_description', ciba_data.get('error', 'Authentication failed')),
+                'error': token_data.get('error_description', token_data.get('error', 'Authentication failed')),
                 'errorDetail': 'Check your client_id and client_secret in .env',
                 'trace': trace
             })
 
-        auth_req_id = ciba_data['auth_req_id']
-        log('response', f'200 OK — auth_req_id: {auth_req_id[:16]}...', {
-            'title': 'CIBA Response',
+        access_token = token_data['access_token']
+        log('response', f'200 OK — Token received ({access_token[:20]}...)', {
+            'title': 'Token Response',
             'body': {
-                'auth_req_id': auth_req_id,
-                'expires_in': ciba_data.get('expires_in'),
-                'interval': ciba_data.get('interval')
+                'access_token': access_token[:30] + '...',
+                'token_type': token_data.get('token_type'),
+                'expires_in': token_data.get('expires_in'),
+                'scope': token_data.get('scope')
             }
         })
 
         # =================================================================
-        # STEP 2: Poll for Token
+        # STEP 2: Call the SIM Swap API
         #
-        # The operator needs time to verify the phone number.
-        # We poll until we get a token or time out.
-        # =================================================================
-
-        poll_interval = ciba_data.get('interval', 5)
-        max_attempts = 6
-        access_token = None
-
-        for attempt in range(1, max_attempts + 1):
-            log('info', f'Polling for token (attempt {attempt}/{max_attempts})...')
-
-            wait_time = 2 if attempt == 1 else poll_interval
-            time.sleep(wait_time)
-
-            log('request', f'POST {NETAPI_BASE_URL}/oauth/token', {
-                'title': f'Token Poll Request (attempt {attempt})',
-                'body': {
-                    'grant_type': 'urn:openid:params:grant-type:ciba',
-                    'auth_req_id': auth_req_id,
-                    'client_id': NETAPI_CLIENT_ID
-                }
-            })
-
-            token_resp = requests.post(
-                f'{NETAPI_BASE_URL}/oauth/token',
-                data={
-                    'grant_type': 'urn:openid:params:grant-type:ciba',
-                    'auth_req_id': auth_req_id,
-                    'client_id': NETAPI_CLIENT_ID,
-                    'client_secret': NETAPI_CLIENT_SECRET
-                },
-                headers={'Content-Type': 'application/x-www-form-urlencoded'}
-            )
-
-            token_data = token_resp.json()
-
-            if 'access_token' in token_data:
-                access_token = token_data['access_token']
-                log('response', f'200 OK — Token received ({access_token[:20]}...)', {
-                    'title': 'Token Response',
-                    'body': {
-                        'access_token': access_token[:30] + '...',
-                        'token_type': token_data.get('token_type'),
-                        'expires_in': token_data.get('expires_in'),
-                        'scope': token_data.get('scope')
-                    }
-                })
-                break
-            elif token_data.get('error') == 'authorization_pending':
-                log('info', 'Authorization pending — operator is processing...')
-            else:
-                log('error', f'Token request failed: {token_data.get("error")}', {
-                    'title': 'Token Error',
-                    'body': token_data
-                })
-                return jsonify({
-                    'success': False,
-                    'error': token_data.get('error_description', token_data.get('error', 'Token failed')),
-                    'trace': trace
-                })
-
-        if not access_token:
-            log('error', f'Timed out waiting for token after {max_attempts} attempts')
-            return jsonify({
-                'success': False,
-                'error': 'Authentication timed out. The operator did not respond in time.',
-                'errorDetail': 'This can happen with test numbers that simulate timeout scenarios.',
-                'trace': trace
-            })
-
-        # =================================================================
-        # STEP 3: Call the SIM Swap API
+        # Now we have an access token. We use it to call the SIM Swap
+        # Check endpoint with the customer's phone number.
         #
-        # We have an access token proving the phone was authenticated.
-        # Now we call the SIM Swap Check endpoint.
+        # With client_credentials (2-legged) tokens, we send the phone
+        # number in the request body — our server is telling NetAPI
+        # which number to check.
         # =================================================================
 
         log('request', f'POST {NETAPI_BASE_URL}/sim-swap/v2/check', {

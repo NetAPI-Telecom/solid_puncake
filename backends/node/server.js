@@ -6,10 +6,9 @@
 // 2. Handles SIM Swap verification requests by talking to NetAPI
 //
 // The flow for each verification request:
-//   1. CIBA Authentication: Ask NetAPI to authenticate a phone number
-//   2. Token Polling: Wait for the operator to approve the authentication
-//   3. SIM Swap Check: Use the token to check if the SIM was recently swapped
-//   4. Return the result + a full trace log to the frontend
+//   1. Client Credentials: Get an access token using your app's client_id + secret
+//   2. SIM Swap Check: Use the token to check if the SIM was recently swapped
+//   3. Return the result + a full trace log to the frontend
 //
 // Every step is logged so the developer can see exactly what happens
 // between their app and the NetAPI gateway.
@@ -66,172 +65,87 @@ app.post('/api/check-sim-swap', async (req, res) => {
 
   try {
     // =====================================================================
-    // STEP 1: CIBA Authentication
+    // STEP 1: Get an Access Token (Client Credentials)
     //
-    // CIBA = Client-Initiated Backchannel Authentication
-    // This tells NetAPI: "I want to authenticate this phone number"
-    // NetAPI forwards the request to the mobile operator (e.g. Safaricom)
-    // The operator verifies the phone number on their network
+    // Client Credentials is the simplest OAuth2 flow — your server
+    // authenticates directly with NetAPI using your app's client_id
+    // and client_secret. No user interaction needed.
+    //
+    // This is the right flow when YOUR SERVER is making the check
+    // on behalf of a customer (e.g., a bank checking before loan approval).
     //
     // We send:
-    //   - login_hint: the phone number to authenticate (tel:+254...)
-    //   - scope: what API we want to use (sim-swap:check)
-    //   - client credentials: proves we are who we say we are
+    //   - grant_type: "client_credentials" (server-to-server auth)
+    //   - client_id + client_secret: your app's credentials from .env
+    //   - scope: which API we want to use (sim-swap:check)
     //
     // We get back:
-    //   - auth_req_id: a reference to track this authentication request
-    //   - interval: how often to poll for the result (in seconds)
-    //   - expires_in: how long the request is valid
+    //   - access_token: a short-lived token to call the API
+    //   - expires_in: how long the token is valid (in seconds)
     // =====================================================================
 
-    log('request', `POST ${NETAPI_BASE_URL}/oauth/bc-authorize`, {
-      title: 'CIBA Authentication Request',
+    log('request', `POST ${NETAPI_BASE_URL}/oauth/token`, {
+      title: 'Token Request (Client Credentials)',
       body: {
-        login_hint: `tel:${phoneNumber}`,
-        scope: 'openid dpv:FraudPreventionAndDetection sim-swap:check',
+        grant_type: 'client_credentials',
         client_id: NETAPI_CLIENT_ID,
-        client_secret: '***hidden***'
+        client_secret: '***hidden***',
+        scope: 'sim-swap:check'
       }
     });
 
-    // Build the form-encoded body for CIBA
-    // Note: the + in phone numbers must be encoded as %2B in form data
-    const cibaBody = new URLSearchParams({
-      login_hint: `tel:${phoneNumber}`,
-      scope: 'openid dpv:FraudPreventionAndDetection sim-swap:check',
+    const tokenBody = new URLSearchParams({
+      grant_type: 'client_credentials',
       client_id: NETAPI_CLIENT_ID,
-      client_secret: NETAPI_CLIENT_SECRET
+      client_secret: NETAPI_CLIENT_SECRET,
+      scope: 'sim-swap:check'
     });
 
-    const cibaResponse = await fetch(`${NETAPI_BASE_URL}/oauth/bc-authorize`, {
+    const tokenResponse = await fetch(`${NETAPI_BASE_URL}/oauth/token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: cibaBody
+      body: tokenBody
     });
 
-    const cibaData = await cibaResponse.json();
+    const tokenData = await tokenResponse.json();
 
-    if (!cibaResponse.ok || !cibaData.auth_req_id) {
-      log('error', `CIBA failed: ${cibaResponse.status} — ${cibaData.error || 'Unknown error'}`, {
-        title: 'CIBA Error Response',
-        body: cibaData
+    if (!tokenResponse.ok || !tokenData.access_token) {
+      log('error', `Token request failed: ${tokenResponse.status} — ${tokenData.error || 'Unknown error'}`, {
+        title: 'Token Error Response',
+        body: tokenData
       });
       return res.json({
         success: false,
-        error: cibaData.error_description || cibaData.error || 'Authentication failed',
+        error: tokenData.error_description || tokenData.error || 'Authentication failed',
         errorDetail: 'Check your client_id and client_secret in .env',
         trace
       });
     }
 
-    log('response', `200 OK — auth_req_id: ${cibaData.auth_req_id.substring(0, 16)}...`, {
-      title: 'CIBA Response',
+    const accessToken = tokenData.access_token;
+    log('response', `200 OK — Token received (${accessToken.substring(0, 20)}...)`, {
+      title: 'Token Response',
       body: {
-        auth_req_id: cibaData.auth_req_id,
-        expires_in: cibaData.expires_in,
-        interval: cibaData.interval
+        access_token: accessToken.substring(0, 30) + '...',
+        token_type: tokenData.token_type,
+        expires_in: tokenData.expires_in,
+        scope: tokenData.scope
       }
     });
 
     // =====================================================================
-    // STEP 2: Poll for Token
+    // STEP 2: Call the SIM Swap API
     //
-    // The operator needs time to verify the phone number on their network.
-    // We poll the token endpoint with the auth_req_id until either:
-    //   - We get an access token (success)
-    //   - We get an error (failed)
-    //   - We time out (too many attempts)
+    // Now we have an access token. We use it to call the SIM Swap
+    // Check endpoint with the customer's phone number.
     //
-    // The response tells us the status:
-    //   - authorization_pending: still waiting, try again
-    //   - access_token present: operator approved, here's your token
-    //   - access_denied: operator rejected the request
-    // =====================================================================
-
-    const pollInterval = (cibaData.interval || 5) * 1000;
-    const maxAttempts = 6;
-    let accessToken = null;
-
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      log('info', `Polling for token (attempt ${attempt}/${maxAttempts})...`);
-
-      // Wait the specified interval before polling
-      await new Promise(resolve => setTimeout(resolve, attempt === 1 ? 2000 : pollInterval));
-
-      log('request', `POST ${NETAPI_BASE_URL}/oauth/token`, {
-        title: `Token Poll Request (attempt ${attempt})`,
-        body: {
-          grant_type: 'urn:openid:params:grant-type:ciba',
-          auth_req_id: cibaData.auth_req_id,
-          client_id: NETAPI_CLIENT_ID
-        }
-      });
-
-      const tokenBody = new URLSearchParams({
-        grant_type: 'urn:openid:params:grant-type:ciba',
-        auth_req_id: cibaData.auth_req_id,
-        client_id: NETAPI_CLIENT_ID,
-        client_secret: NETAPI_CLIENT_SECRET
-      });
-
-      const tokenResponse = await fetch(`${NETAPI_BASE_URL}/oauth/token`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: tokenBody
-      });
-
-      const tokenData = await tokenResponse.json();
-
-      if (tokenData.access_token) {
-        // Got the token — operator approved the authentication
-        accessToken = tokenData.access_token;
-        log('response', `200 OK — Token received (${accessToken.substring(0, 20)}...)`, {
-          title: 'Token Response',
-          body: {
-            access_token: accessToken.substring(0, 30) + '...',
-            token_type: tokenData.token_type,
-            expires_in: tokenData.expires_in,
-            scope: tokenData.scope
-          }
-        });
-        break;
-      } else if (tokenData.error === 'authorization_pending') {
-        // Not ready yet — the operator is still processing
-        log('info', 'Authorization pending — operator is processing...');
-      } else {
-        // Something went wrong
-        log('error', `Token request failed: ${tokenData.error}`, {
-          title: 'Token Error',
-          body: tokenData
-        });
-        return res.json({
-          success: false,
-          error: tokenData.error_description || tokenData.error || 'Token request failed',
-          trace
-        });
-      }
-    }
-
-    if (!accessToken) {
-      log('error', 'Timed out waiting for token after ' + maxAttempts + ' attempts');
-      return res.json({
-        success: false,
-        error: 'Authentication timed out. The operator did not respond in time.',
-        errorDetail: 'This can happen with test numbers that simulate timeout scenarios.',
-        trace
-      });
-    }
-
-    // =====================================================================
-    // STEP 3: Call the SIM Swap API
-    //
-    // Now we have an access token that proves the phone number was
-    // authenticated by the mobile operator. We use this token to call
-    // the SIM Swap Check API.
+    // With client_credentials (2-legged) tokens, we send the phone
+    // number in the request body — our server is telling NetAPI which
+    // number to check.
     //
     // We send:
-    //   - phoneNumber: the number to check
-    //   - Authorization header: Bearer token from step 2
+    //   - phoneNumber: the customer's number in E.164 format (+254...)
+    //   - Authorization header: Bearer token from step 1
     //
     // We get back:
     //   - swapped: true/false — whether the SIM was recently changed

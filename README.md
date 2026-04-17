@@ -10,7 +10,7 @@ A ready-to-run demo app that shows how to use NetAPI's SIM Swap API in a real-wo
 
 ```bash
 # 1. Clone
-git clone https://github.com/netapi-africa/netapi-quickstart.git
+git clone https://github.com/NetAPI-Telecom/solid_puncake.git
 cd netapi-quickstart
 
 # 2. Add your credentials to .env

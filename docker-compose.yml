@@ -1,0 +1,57 @@
+# =============================================================================
+# NetAPI Quickstart — Docker Compose
+#
+# Run any language backend with one command:
+#
+#   docker compose up node       # Node.js
+#   docker compose up python     # Python
+#   docker compose up php        # PHP
+#   docker compose up go         # Go
+#   docker compose up java       # Java
+#
+# Then open http://localhost:3000 in your browser.
+#
+# Before running: edit the .env file in the root of this repo with your
+# NetAPI credentials. All services read from the same .env file.
+# =============================================================================
+
+services:
+  node:
+    build: ./backends/node
+    ports:
+      - "3000:3000"
+    env_file: .env
+    volumes:
+      - ./frontend:/app/frontend:ro
+
+  python:
+    build: ./backends/python
+    ports:
+      - "3000:3000"
+    env_file: .env
+    volumes:
+      - ./frontend:/app/frontend:ro
+
+  php:
+    build: ./backends/php
+    ports:
+      - "3000:3000"
+    env_file: .env
+    volumes:
+      - ./frontend:/app/frontend:ro
+
+  go:
+    build: ./backends/go
+    ports:
+      - "3000:3000"
+    env_file: .env
+    volumes:
+      - ./frontend:/app/frontend:ro
+
+  java:
+    build: ./backends/java
+    ports:
+      - "3000:3000"
+    env_file: .env
+    volumes:
+      - ./frontend:/app/frontend:ro

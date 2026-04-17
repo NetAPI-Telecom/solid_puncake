@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LendSafe - SIM Swap Verification Demo | NetAPI Quickstart</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            bank: { 50: '#f0f7ff', 100: '#e0effe', 200: '#bae0fd', 500: '#3b82f6', 600: '#2563eb', 700: '#1d4ed8', 800: '#1e3a5f', 900: '#0f1d2f' },
+            trace: { bg: '#0d1117', border: '#30363d', text: '#c9d1d9', muted: '#8b949e' }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+    body { font-family: 'Inter', sans-serif; }
+    .mono { font-family: 'JetBrains Mono', monospace; }
+    .trace-scroll { max-height: 480px; overflow-y: auto; }
+    .trace-scroll::-webkit-scrollbar { width: 6px; }
+    .trace-scroll::-webkit-scrollbar-track { background: #0d1117; }
+    .trace-scroll::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+    .fade-in { animation: fadeIn 0.3s ease-in; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+    .pulse-dot { animation: pulse-dot 1.5s ease-in-out infinite; }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+
+  <!-- Header -->
+  <header class="bg-white border-b border-gray-200">
+    <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-8 h-8 bg-bank-600 rounded-lg flex items-center justify-center">
+          <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+          </svg>
+        </div>
+        <div>
+          <h1 class="text-lg font-bold text-gray-900">LendSafe</h1>
+          <p class="text-xs text-gray-500">Loan Disbursement Portal</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="text-xs text-gray-400">Powered by</span>
+        <a href="https://netapi.africa" target="_blank" class="text-xs font-semibold text-bank-600 hover:text-bank-700">NetAPI</a>
+        <span class="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">Quickstart Demo</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Scenario context banner -->
+  <div class="bg-bank-800 text-white">
+    <div class="max-w-7xl mx-auto px-6 py-3 flex items-center gap-3">
+      <svg class="w-5 h-5 text-blue-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+      </svg>
+      <p class="text-sm">
+        <span class="font-semibold">Scenario:</span> A loan officer is about to approve a KES 50,000 loan.
+        Before disbursing, the bank verifies the customer's SIM hasn't been recently swapped — a common fraud indicator.
+        The SIM Swap check happens through NetAPI's gateway to the mobile operator.
+      </p>
+    </div>
+  </div>
+
+  <!-- Main content: two panels -->
+  <main class="max-w-7xl mx-auto px-6 py-6">
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+      <!-- LEFT PANEL: Bank Application UI -->
+      <div class="space-y-4">
+        <div class="flex items-center gap-2 mb-2">
+          <div class="w-2 h-2 bg-green-500 rounded-full"></div>
+          <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide">Bank Application</h2>
+        </div>
+
+        <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <!-- Customer info section -->
+          <div class="p-6 border-b border-gray-100">
+            <h3 class="text-base font-semibold text-gray-900 mb-4">Customer Loan Application</h3>
+
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs font-medium text-gray-500 mb-1">Customer Name</label>
+                <input type="text" id="customerName" value="Jane Wanjiku" readonly
+                  class="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900" />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-500 mb-1">Loan Amount</label>
+                <input type="text" value="KES 50,000" readonly
+                  class="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900" />
+              </div>
+            </div>
+
+            <div class="mt-4">
+              <label class="block text-xs font-medium text-gray-500 mb-1">Phone Number (to verify)</label>
+              <input type="text" id="phoneNumber" value="+254712345678"
+                class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 focus:ring-2 focus:ring-bank-500 focus:border-bank-500 mono" />
+            </div>
+
+            <!-- Test scenario selector -->
+            <div class="mt-4">
+              <label class="block text-xs font-medium text-gray-500 mb-2">Test Scenarios</label>
+              <div class="flex flex-wrap gap-2">
+                <button onclick="setPhone('+254712345678')" class="scenario-btn px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 transition-colors">
+                  <span class="inline-block w-2 h-2 bg-green-500 rounded-full mr-1.5"></span>Not swapped
+                </button>
+                <button onclick="setPhone('+254755555555')" class="scenario-btn px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 transition-colors">
+                  <span class="inline-block w-2 h-2 bg-red-500 rounded-full mr-1.5"></span>SIM swapped
+                </button>
+                <button onclick="setPhone('+254788888888')" class="scenario-btn px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 transition-colors">
+                  <span class="inline-block w-2 h-2 bg-amber-500 rounded-full mr-1.5"></span>Timeout
+                </button>
+                <button onclick="setPhone('+254777000000')" class="scenario-btn px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 transition-colors">
+                  <span class="inline-block w-2 h-2 bg-gray-500 rounded-full mr-1.5"></span>Offline
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Action button -->
+          <div class="p-6 bg-gray-50">
+            <button id="verifyBtn" onclick="runVerification()"
+              class="w-full py-3 px-4 bg-bank-600 hover:bg-bank-700 text-white font-semibold rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+              </svg>
+              <span id="btnText">Verify & Approve Loan</span>
+            </button>
+          </div>
+
+          <!-- Result section (hidden initially) -->
+          <div id="resultSection" class="hidden">
+            <!-- Populated by JS -->
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT PANEL: Developer Trace / Logs -->
+      <div class="space-y-4">
+        <div class="flex items-center justify-between mb-2">
+          <div class="flex items-center gap-2">
+            <div class="w-2 h-2 bg-purple-500 rounded-full"></div>
+            <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide">API Trace</h2>
+          </div>
+          <button onclick="clearTrace()" class="text-xs text-gray-400 hover:text-gray-600 transition-colors">Clear</button>
+        </div>
+
+        <div class="bg-trace-bg rounded-xl border border-trace-border shadow-sm overflow-hidden">
+          <!-- Trace header -->
+          <div class="px-4 py-3 border-b border-trace-border flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <div id="traceStatus" class="w-2 h-2 bg-gray-500 rounded-full"></div>
+              <span id="traceStatusText" class="text-xs text-trace-muted mono">Waiting for request...</span>
+            </div>
+            <span class="text-xs text-trace-muted mono" id="traceTimer"></span>
+          </div>
+
+          <!-- Trace log lines -->
+          <div id="traceLog" class="trace-scroll p-4 space-y-0.5 min-h-[400px]">
+            <div class="text-xs text-trace-muted mono text-center py-16">
+              <p>Click "Verify & Approve Loan" to see the full API flow.</p>
+              <p class="mt-2">Every request and response will appear here in real time.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Expandable detail panel -->
+        <div id="detailPanel" class="hidden bg-trace-bg rounded-xl border border-trace-border shadow-sm overflow-hidden">
+          <div class="px-4 py-3 border-b border-trace-border flex items-center justify-between">
+            <span class="text-xs text-trace-text mono font-medium" id="detailTitle">Request Detail</span>
+            <button onclick="closeDetail()" class="text-xs text-trace-muted hover:text-trace-text transition-colors">Close</button>
+          </div>
+          <pre id="detailContent" class="p-4 text-xs text-trace-text mono overflow-x-auto max-h-[300px]"></pre>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Footer -->
+  <footer class="max-w-7xl mx-auto px-6 py-8 mt-8 border-t border-gray-200">
+    <div class="flex items-center justify-between text-xs text-gray-400">
+      <p>This is a demo application for learning NetAPI's SIM Swap API. Not a real banking product.</p>
+      <a href="https://docs.netapi.africa" target="_blank" class="text-bank-600 hover:underline">NetAPI Documentation</a>
+    </div>
+  </footer>
+
+  <script>
+    // =========================================================================
+    // LendSafe Quickstart — Frontend Logic
+    //
+    // This file handles the UI for the bank demo and communicates with the
+    // backend server (Node/Python/PHP/Go/Java — whichever you're running).
+    //
+    // The backend does the actual NetAPI calls (CIBA auth + SIM Swap check).
+    // This frontend just sends the phone number and displays the results.
+    // =========================================================================
+
+    let traceStartTime = null;
+
+    // --- Phone number selector for test scenarios ---
+    function setPhone(number) {
+      document.getElementById('phoneNumber').value = number;
+    }
+
+    // --- Clear the trace log ---
+    function clearTrace() {
+      document.getElementById('traceLog').innerHTML =
+        '<div class="text-xs text-trace-muted mono text-center py-16">' +
+        '<p>Click "Verify & Approve Loan" to see the full API flow.</p>' +
+        '<p class="mt-2">Every request and response will appear here in real time.</p></div>';
+      document.getElementById('traceStatus').className = 'w-2 h-2 bg-gray-500 rounded-full';
+      document.getElementById('traceStatusText').textContent = 'Waiting for request...';
+      document.getElementById('traceTimer').textContent = '';
+      document.getElementById('resultSection').classList.add('hidden');
+      closeDetail();
+    }
+
+    // --- Add a line to the trace log ---
+    function addTrace(type, message, detail) {
+      const log = document.getElementById('traceLog');
+
+      // Clear the placeholder on first trace
+      if (log.querySelector('.text-center')) {
+        log.innerHTML = '';
+      }
+
+      const elapsed = traceStartTime ? ((Date.now() - traceStartTime) / 1000).toFixed(2) : '0.00';
+      document.getElementById('traceTimer').textContent = elapsed + 's';
+
+      const colors = {
+        request:  'text-blue-400',
+        response: 'text-green-400',
+        error:    'text-red-400',
+        info:     'text-trace-muted',
+        warning:  'text-amber-400'
+      };
+
+      const arrows = {
+        request:  '<span class="text-blue-500">\u2192</span>',
+        response: '<span class="text-green-500">\u2190</span>',
+        error:    '<span class="text-red-500">\u2717</span>',
+        info:     '<span class="text-gray-500">\u2022</span>',
+        warning:  '<span class="text-amber-500">\u26A0</span>'
+      };
+
+      const clickAttr = detail ? `onclick="showDetail('${escapeHtml(JSON.stringify(detail))}')" style="cursor:pointer"` : '';
+      const expandHint = detail ? '<span class="text-trace-muted ml-2 text-[10px]">[click to expand]</span>' : '';
+
+      const line = document.createElement('div');
+      line.className = 'fade-in';
+      line.innerHTML =
+        `<div class="flex items-start gap-2 py-1 hover:bg-white/5 px-2 -mx-2 rounded" ${clickAttr}>` +
+        `  <span class="text-trace-muted text-[10px] mono w-12 flex-shrink-0 pt-0.5">${elapsed}s</span>` +
+        `  <span class="flex-shrink-0">${arrows[type] || arrows.info}</span>` +
+        `  <span class="mono text-xs ${colors[type] || colors.info}">${message}${expandHint}</span>` +
+        `</div>`;
+
+      log.appendChild(line);
+      log.scrollTop = log.scrollHeight;
+    }
+
+    // --- Show detail panel for a trace line ---
+    function showDetail(detailStr) {
+      try {
+        const detail = JSON.parse(detailStr);
+        document.getElementById('detailTitle').textContent = detail.title || 'Request/Response Detail';
+        document.getElementById('detailContent').textContent = JSON.stringify(detail.body, null, 2);
+        document.getElementById('detailPanel').classList.remove('hidden');
+      } catch (e) {
+        // ignore parse errors
+      }
+    }
+
+    function closeDetail() {
+      document.getElementById('detailPanel').classList.add('hidden');
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+    }
+
+    // --- Show the result in the bank UI ---
+    function showResult(success, message, detail) {
+      const section = document.getElementById('resultSection');
+      section.classList.remove('hidden');
+
+      if (success === true) {
+        // SIM not swapped — safe to proceed
+        section.innerHTML =
+          '<div class="p-6 bg-green-50 border-t-2 border-green-500">' +
+          '  <div class="flex items-center gap-3">' +
+          '    <div class="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">' +
+          '      <svg class="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>' +
+          '    </div>' +
+          '    <div>' +
+          '      <p class="text-sm font-semibold text-green-800">Verification Passed</p>' +
+          '      <p class="text-xs text-green-600">' + message + '</p>' +
+          '    </div>' +
+          '  </div>' +
+          '  <div class="mt-4 p-3 bg-green-100 rounded-lg">' +
+          '    <p class="text-xs text-green-800"><span class="font-semibold">Decision:</span> Safe to disburse loan. SIM card has not been recently swapped.</p>' +
+          '  </div>' +
+          '</div>';
+      } else if (success === false) {
+        // SIM swapped — fraud risk
+        section.innerHTML =
+          '<div class="p-6 bg-red-50 border-t-2 border-red-500">' +
+          '  <div class="flex items-center gap-3">' +
+          '    <div class="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">' +
+          '      <svg class="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>' +
+          '    </div>' +
+          '    <div>' +
+          '      <p class="text-sm font-semibold text-red-800">Verification Failed</p>' +
+          '      <p class="text-xs text-red-600">' + message + '</p>' +
+          '    </div>' +
+          '  </div>' +
+          '  <div class="mt-4 p-3 bg-red-100 rounded-lg">' +
+          '    <p class="text-xs text-red-800"><span class="font-semibold">Decision:</span> Hold disbursement. SIM was recently swapped — possible fraud. Escalate to manual review.</p>' +
+          '  </div>' +
+          '</div>';
+      } else {
+        // Error / timeout / offline
+        section.innerHTML =
+          '<div class="p-6 bg-amber-50 border-t-2 border-amber-500">' +
+          '  <div class="flex items-center gap-3">' +
+          '    <div class="w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center">' +
+          '      <svg class="w-6 h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>' +
+          '    </div>' +
+          '    <div>' +
+          '      <p class="text-sm font-semibold text-amber-800">Verification Inconclusive</p>' +
+          '      <p class="text-xs text-amber-600">' + message + '</p>' +
+          '    </div>' +
+          '  </div>' +
+          '  <div class="mt-4 p-3 bg-amber-100 rounded-lg">' +
+          '    <p class="text-xs text-amber-800"><span class="font-semibold">Decision:</span> Cannot verify at this time. ' + (detail || 'Retry or proceed with additional manual checks.') + '</p>' +
+          '  </div>' +
+          '</div>';
+      }
+    }
+
+    // =========================================================================
+    // Main verification flow
+    //
+    // Calls the local backend at POST /api/check-sim-swap
+    // The backend handles all NetAPI communication (CIBA auth + SIM Swap API)
+    // and returns both the result and a trace log of every step.
+    // =========================================================================
+    async function runVerification() {
+      const phoneNumber = document.getElementById('phoneNumber').value.trim();
+      if (!phoneNumber) {
+        alert('Please enter a phone number');
+        return;
+      }
+
+      // Reset UI
+      const btn = document.getElementById('verifyBtn');
+      const btnText = document.getElementById('btnText');
+      btn.disabled = true;
+      btnText.textContent = 'Verifying...';
+      document.getElementById('resultSection').classList.add('hidden');
+      closeDetail();
+
+      // Clear and start trace
+      document.getElementById('traceLog').innerHTML = '';
+      traceStartTime = Date.now();
+      document.getElementById('traceStatus').className = 'w-2 h-2 bg-blue-500 rounded-full pulse-dot';
+      document.getElementById('traceStatusText').textContent = 'Processing...';
+
+      addTrace('info', 'Starting SIM Swap verification for ' + phoneNumber);
+      addTrace('info', 'Connecting to backend server...');
+
+      try {
+        // Call our local backend — it does all the NetAPI work
+        const response = await fetch('/api/check-sim-swap', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phoneNumber })
+        });
+
+        const data = await response.json();
+
+        // Replay the trace log from the backend
+        if (data.trace && Array.isArray(data.trace)) {
+          for (const entry of data.trace) {
+            addTrace(entry.type, entry.message, entry.detail || null);
+          }
+        }
+
+        // Show result in bank UI
+        if (data.success !== undefined) {
+          if (data.swapped === false) {
+            addTrace('info', 'Verification complete: SIM not swapped');
+            document.getElementById('traceStatus').className = 'w-2 h-2 bg-green-500 rounded-full';
+            document.getElementById('traceStatusText').textContent = 'Complete - Passed';
+            showResult(true, 'SIM has not been recently swapped. Customer identity is consistent.');
+          } else if (data.swapped === true) {
+            addTrace('warning', 'Verification complete: SIM WAS SWAPPED');
+            document.getElementById('traceStatus').className = 'w-2 h-2 bg-red-500 rounded-full';
+            document.getElementById('traceStatusText').textContent = 'Complete - Failed';
+            showResult(false, 'SIM was swapped ' + (data.swapAge || 'recently') + '. Potential fraud risk.');
+          } else {
+            addTrace('error', 'Verification failed: ' + (data.error || 'Unknown error'));
+            document.getElementById('traceStatus').className = 'w-2 h-2 bg-amber-500 rounded-full';
+            document.getElementById('traceStatusText').textContent = 'Complete - Error';
+            showResult(null, data.error || 'Could not complete verification', data.errorDetail);
+          }
+        } else {
+          addTrace('error', 'Unexpected response from backend');
+          document.getElementById('traceStatus').className = 'w-2 h-2 bg-red-500 rounded-full';
+          document.getElementById('traceStatusText').textContent = 'Error';
+          showResult(null, data.error || 'Unexpected response from server');
+        }
+
+      } catch (err) {
+        addTrace('error', 'Failed to reach backend: ' + err.message);
+        addTrace('info', 'Is the backend server running? Check your terminal.');
+        document.getElementById('traceStatus').className = 'w-2 h-2 bg-red-500 rounded-full';
+        document.getElementById('traceStatusText').textContent = 'Connection failed';
+        showResult(null, 'Could not connect to backend server', 'Make sure the backend is running on http://localhost:3000');
+      } finally {
+        btn.disabled = false;
+        btnText.textContent = 'Verify & Approve Loan';
+      }
+    }
+  </script>
+</body>
+</html>
